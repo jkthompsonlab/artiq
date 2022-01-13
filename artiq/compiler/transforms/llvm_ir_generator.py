@@ -39,6 +39,94 @@ def memoize(generator):
     return memoized
 
 
+class DebugInfoEmitter:
+    def __init__(self, llmodule):
+        self.llmodule = llmodule
+        self.llcompileunit = None
+        self.cache = {}
+
+        llident = self.llmodule.add_named_metadata('llvm.ident')
+        llident.add(self.emit_metadata(["ARTIQ"]))
+
+        llflags = self.llmodule.add_named_metadata('llvm.module.flags')
+        llflags.add(self.emit_metadata([2, "Debug Info Version", 3]))
+        llflags.add(self.emit_metadata([2, "Dwarf Version", 4]))
+
+    def emit_metadata(self, operands):
+        def map_operand(operand):
+            if operand is None:
+                return ll.Constant(llmetadata, None)
+            elif isinstance(operand, str):
+                return ll.MetaDataString(self.llmodule, operand)
+            elif isinstance(operand, int):
+                return ll.Constant(lli32, operand)
+            elif isinstance(operand, (list, tuple)):
+                return self.emit_metadata(operand)
+            else:
+                assert isinstance(operand, ll.NamedValue)
+                return operand
+        return self.llmodule.add_metadata(list(map(map_operand, operands)))
+
+    def emit_debug_info(self, kind, operands, is_distinct=False):
+        return self.llmodule.add_debug_info(kind, operands, is_distinct)
+
+    @memoize
+    def emit_file(self, source_buffer):
+        source_dir, source_file = os.path.split(source_buffer.name)
+        return self.emit_debug_info("DIFile", {
+            "filename":        source_file,
+            "directory":       source_dir,
+        })
+
+    @memoize
+    def emit_compile_unit(self, source_buffer):
+        return self.emit_debug_info("DICompileUnit", {
+            "language":        ll.DIToken("DW_LANG_Python"),
+            "file":            self.emit_file(source_buffer),
+            "producer":        "ARTIQ",
+            "runtimeVersion":  0,
+            "emissionKind":    2,   # full=1, lines only=2
+        }, is_distinct=True)
+
+    @memoize
+    def emit_subroutine_type(self, typ):
+        return self.emit_debug_info("DISubroutineType", {
+            "types":           self.emit_metadata([None])
+        })
+
+    @memoize
+    def emit_subprogram(self, func, llfunc):
+        source_buffer = func.loc.source_buffer
+
+        if self.llcompileunit is None:
+            self.llcompileunit = self.emit_compile_unit(source_buffer)
+            llcompileunits = self.llmodule.add_named_metadata('llvm.dbg.cu')
+            llcompileunits.add(self.llcompileunit)
+
+        display_name = "{}{}".format(func.name, types.TypePrinter().name(func.type))
+        return self.emit_debug_info("DISubprogram", {
+            "name":            func.name,
+            "linkageName":     llfunc.name,
+            "type":            self.emit_subroutine_type(func.type),
+            "file":            self.emit_file(source_buffer),
+            "line":            func.loc.line(),
+            "unit":            self.llcompileunit,
+            "scope":           self.emit_file(source_buffer),
+            "scopeLine":       func.loc.line(),
+            "isLocal":         func.is_internal,
+            "isDefinition":    True,
+            "retainedNodes":   self.emit_metadata([])
+        }, is_distinct=True)
+
+    @memoize
+    def emit_loc(self, loc, scope):
+        return self.emit_debug_info("DILocation", {
+            "line":            loc.line(),
+            "column":          loc.column(),
+            "scope":           scope
+        })
+
+
 class ABILayoutInfo:
     """Caches DataLayout size/alignment lookup results.
 
@@ -84,6 +172,7 @@ class LLVMIRGenerator:
         self.llmap = {}
         self.llobject_map = {}
         self.phis = []
+        self.debug_info_emitter = DebugInfoEmitter(self.llmodule)
         self.empty_metadata = self.llmodule.add_metadata([])
         self.quote_fail_msg = None
 
@@ -564,6 +653,10 @@ class LLVMIRGenerator:
             self.llbuilder = ll.IRBuilder()
             llblock_map = {}
 
+            if not func.is_generated:
+                lldisubprogram = self.debug_info_emitter.emit_subprogram(func, self.llfunction)
+                self.llfunction.set_metadata('dbg', lldisubprogram)
+
             # First, map arguments.
             if self.has_sret(func.type):
                 llactualargs = self.llfunction.args[1:]
@@ -583,6 +676,10 @@ class LLVMIRGenerator:
             for block in func.basic_blocks:
                 self.llbuilder.position_at_end(self.llmap[block])
                 for insn in block.instructions:
+                    if insn.loc is not None and not func.is_generated:
+                        self.llbuilder.debug_metadata = \
+                            self.debug_info_emitter.emit_loc(insn.loc, lldisubprogram)
+
                     llinsn = getattr(self, "process_" + type(insn).__name__)(insn)
                     assert llinsn is not None
                     self.llmap[insn] = llinsn
@@ -1249,12 +1346,12 @@ class LLVMIRGenerator:
             self.engine.process(diag)
         tag += ir.rpc_tag(fun_type.ret, ret_error_handler)
 
+        llstackptr = self.llbuilder.call(self.llbuiltin("llvm.stacksave"), [],
+                                         name="rpc.stack")
+
         lltag = self.llconst_of_const(ir.Constant(tag, builtins.TStr()))
         lltagptr = self.llbuilder.alloca(lltag.type)
         self.llbuilder.store(lltag, lltagptr)
-
-        llstackptr = self.llbuilder.call(self.llbuiltin("llvm.stacksave"), [],
-                                         name="rpc.stack")
 
         llargs = self.llbuilder.alloca(llptr, ll.Constant(lli32, len(args)),
                                        name="rpc.args")
@@ -1625,7 +1722,8 @@ class LLVMIRGenerator:
     def process_LandingPad(self, insn):
         # Layout on return from landing pad: {%_Unwind_Exception*, %Exception*}
         lllandingpadty = ll.LiteralStructType([llptr, llptr])
-        lllandingpad = self.llbuilder.landingpad(lllandingpadty, cleanup=True)
+        lllandingpad = self.llbuilder.landingpad(lllandingpadty,
+                                                 cleanup=insn.has_cleanup)
         llrawexn = self.llbuilder.extract_value(lllandingpad, 1)
         llexn = self.llbuilder.bitcast(llrawexn, self.llty_of_type(insn.type))
         llexnnameptr = self.llbuilder.gep(llexn, [self.llindex(0), self.llindex(0)],
@@ -1634,23 +1732,34 @@ class LLVMIRGenerator:
 
         for target, typ in insn.clauses():
             if typ is None:
-                exnname = "" # see the comment in ksupport/eh.rs
+                # we use a null pointer here, similar to how cpp does it
+                # https://llvm.org/docs/ExceptionHandling.html#try-catch
+                # > If @ExcType is null, any exception matches, so the
+                # landingpad should always be entered. This is used for C++
+                # catch-all blocks (“catch (...)”).
+                lllandingpad.add_clause(
+                    ll.CatchClause(
+                        ll.Constant(lli32, 0).inttoptr(llptr)
+                    )
+                )
             else:
                 exnname = "{}:{}".format(typ.id, typ.name)
 
-            llclauseexnname = self.llconst_of_const(
-                ir.Constant(exnname, builtins.TStr()))
-            llclauseexnnameptr = self.llmodule.globals.get("exn.{}".format(exnname))
-            if llclauseexnnameptr is None:
-                llclauseexnnameptr = ll.GlobalVariable(self.llmodule, llclauseexnname.type,
-                                                       name="exn.{}".format(exnname))
-                llclauseexnnameptr.global_constant = True
-                llclauseexnnameptr.initializer = llclauseexnname
-                llclauseexnnameptr.linkage = "private"
-                llclauseexnnameptr.unnamed_addr = True
-            lllandingpad.add_clause(ll.CatchClause(llclauseexnnameptr))
+                llclauseexnname = self.llconst_of_const(
+                    ir.Constant(exnname, builtins.TStr()))
+                llclauseexnnameptr = self.llmodule.globals.get("exn.{}".format(exnname))
+                if llclauseexnnameptr is None:
+                    llclauseexnnameptr = ll.GlobalVariable(self.llmodule, llclauseexnname.type,
+                                                           name="exn.{}".format(exnname))
+                    llclauseexnnameptr.global_constant = True
+                    llclauseexnnameptr.initializer = llclauseexnname
+                    llclauseexnnameptr.linkage = "private"
+                    llclauseexnnameptr.unnamed_addr = True
+                lllandingpad.add_clause(ll.CatchClause(llclauseexnnameptr))
 
             if typ is None:
+                # typ is None means that we match all exceptions, so no need to
+                # compare
                 self.llbuilder.branch(self.map(target))
             else:
                 llexnlen       = self.llbuilder.extract_value(llexnname, 1)
@@ -1667,6 +1776,9 @@ class LLVMIRGenerator:
                         self.llbuilder.branch(self.map(target))
 
         if self.llbuilder.basic_block.terminator is None:
-            self.llbuilder.branch(self.map(insn.cleanup()))
+            if insn.has_cleanup:
+                self.llbuilder.branch(self.map(insn.cleanup()))
+            else:
+                self.llbuilder.resume(lllandingpad)
 
         return llexn
