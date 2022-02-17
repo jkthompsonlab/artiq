@@ -398,6 +398,20 @@ extern fn dma_playback(timestamp: i64, ptr: i32) {
 
         csr::cri_con::selected_write(1);
         csr::rtio_dma::enable_write(1);
+        dma_wait_until_done();
+    }
+}
+
+#[cfg(not(has_rtio_dma))]
+#[unwind(allowed)]
+extern fn dma_playback(_timestamp: i64, _ptr: i32) {
+    unimplemented!("not(has_rtio_dma)")
+}
+
+#[cfg(has_rtio_dma)]
+#[unwind(allowed)]
+extern fn dma_wait_until_done() {
+    unsafe {
         while csr::rtio_dma::enable_read() != 0 {}
         csr::cri_con::selected_write(0);
 
@@ -422,7 +436,7 @@ extern fn dma_playback(timestamp: i64, ptr: i32) {
 
 #[cfg(not(has_rtio_dma))]
 #[unwind(allowed)]
-extern fn dma_playback(_timestamp: i64, _ptr: i32) {
+extern fn dma_wait_until_done() {
     unimplemented!("not(has_rtio_dma)")
 }
 
