@@ -147,6 +147,7 @@ static mut API: &'static [(&'static str, *const ())] = &[
     api!(dma_erase = ::dma_erase),
     api!(dma_retrieve = ::dma_retrieve),
     api!(dma_playback = ::dma_playback),
+    api!(dma_wait_until_done = ::dma_wait_until_done),
 
     api!(i2c_start = ::nrt_bus::i2c::start),
     api!(i2c_restart = ::nrt_bus::i2c::restart),
