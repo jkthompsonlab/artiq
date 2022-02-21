@@ -371,7 +371,7 @@ class SchedulerCase(unittest.TestCase):
         loop.run_until_complete(empty_ready.wait())
         self.assertTrue(check_pause_0())
         loop.run_until_complete(empty_completed.wait())
-        self.assertTrue(check_pause_0())
+        self.assertFalse(check_pause_0())
 
         self.assertFalse(termination_ok)
         scheduler.request_termination(0)
