@@ -24,7 +24,7 @@ from artiq.gateware.drtio.wrpll import WRPLL, DDMTDSamplerGTP
 from artiq.gateware.drtio.rx_synchronizer import XilinxRXSynchronizer
 from artiq.gateware.drtio import *
 from artiq.build_soc import *
-from artiq.gateware.targets.kasli import (MasterBase,SatelliteBase)
+from artiq.gateware.targets.kasli import (SUServo, MasterBase, SatelliteBase)
 
 
 class Master(MasterBase):
@@ -39,7 +39,7 @@ class Master(MasterBase):
         self.submodules += phy
         self.rtio_channels.append(rtio.Channel.from_phy(phy))
         # matches Tester EEM numbers
-        eem.Sampler.add_std(self, 0, 1, ttl_serdes_7series.Output_8X)
+        eem.SUServo.add_std(self, eems_urukul=[[2, 3],[4, 5]], eems_sampler=[0, 1])    #eem4 and eem5 are blank, there is no second urukul.
 
         self.config["HAS_RTIO_LOG"] = None
         self.config["RTIO_LOG_CHANNEL"] = len(self.rtio_channels)
@@ -48,7 +48,6 @@ class Master(MasterBase):
         self.rtio_channels.append(rtio.LogChannel())
 
         self.add_rtio(self.rtio_channels)
-
 
 
 VARIANTS = {cls.__name__.lower(): cls for cls in [Master]}
