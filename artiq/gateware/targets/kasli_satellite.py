@@ -27,31 +27,53 @@ from artiq.build_soc import *
 from artiq.gateware.targets.kasli import (MasterBase,SatelliteBase)
 
 
+#class Satellite(SatelliteBase):
+ #   def __init__(self, hw_rev=None, **kwargs):
+  #      if hw_rev is None:
+   #         hw_rev = "v2.0"
+    #    SatelliteBase.__init__(self, hw_rev=hw_rev, rtio_clk_freq=125e6, **kwargs)
+
+     #   platform = self.platform
+
+      #  try:
+       #     self.comb += platform_request("clk_sel").eq(1)
+        #except ConstraintError:
+         #   pass
+
+        #self.rtio_channels = []
+
+        #eem.DIO.add_std(self, 0,
+         #   ttl_serdes_7series.InOut_8X, ttl_serdes_7series.Output_8X, edge_counter_cls=SimpleEdgeCounter)
+        #eem.SUServo.add_std(self, eems_urukul=[[3, 4], [5, 6]], eems_sampler=[1, 2])    #eem4 and eem5 are blank, there is no second urukul.
+
+
+
+        #self.config["HAS_RTIO_LOG"] = None
+        #self.config["RTIO_LOG_CHANNEL"] = len(self.rtio_channels)
+        #self.rtio_channels.append(rtio.LogChannel())
+
+        #self.add_rtio(self.rtio_channels)
+
+
+
 class Satellite(SatelliteBase):
     def __init__(self, hw_rev=None, **kwargs):
         if hw_rev is None:
             hw_rev = "v2.0"
-        SatelliteBase.__init__(self, hw_rev=hw_rev, rtio_clk_freq=125e6, **kwargs)
-
-        platform = self.platform
-
-        try:
-            self.comb += platform_request("clk_sel").eq(1)
-        except ConstraintError:
-            pass
+        SatelliteBase.__init__(self, hw_rev=hw_rev, **kwargs)
 
         self.rtio_channels = []
-
+        phy = ttl_simple.Output(self.platform.request("user_led", 0))
+        self.submodules += phy
+        self.rtio_channels.append(rtio.Channel.from_phy(phy))
+        # matches Tester EEM numbers
         eem.DIO.add_std(self, 0,
-            ttl_serdes_7series.InOut_8X, ttl_serdes_7series.Output_8X, edge_counter_cls=SimpleEdgeCounter)
-
-        self.config["HAS_RTIO_LOG"] = None
-        self.config["RTIO_LOG_CHANNEL"] = len(self.rtio_channels)
-        self.rtio_channels.append(rtio.LogChannel())
+            ttl_serdes_7series.InOut_8X, ttl_serdes_7series.Output_8X)
+                # eem.SUServo.add_std(self, eems_urukul=[[3, 4], [5, 6]], eems_sampler=[1, 2])    #eem4 and eem5 are blank, there is no second  urukul
+        eem.Sampler.add_std(self, 1, 2, ttl_serdes_7series.Output_8X)
+        eem.Urukul.add_std(self, 3, 4, ttl_serdes_7series.Output_8X, ttl_simple.ClockGen)
 
         self.add_rtio(self.rtio_channels)
-
-
 
 VARIANTS = {cls.__name__.lower(): cls for cls in [Satellite]}
 
