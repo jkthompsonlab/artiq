@@ -69,9 +69,10 @@ class Satellite(SatelliteBase):
         # matches Tester EEM numbers
         eem.DIO.add_std(self, 0,
             ttl_serdes_7series.InOut_8X, ttl_serdes_7series.Output_8X)
-                # eem.SUServo.add_std(self, eems_urukul=[[3, 4], [5, 6]], eems_sampler=[1, 2])    #eem4 and eem5 are blank, there is no second  urukul
-        eem.Sampler.add_std(self, 1, 2, ttl_serdes_7series.Output_8X)
+        eem.Urukul.add_std(self, 1, 2, ttl_serdes_7series.Output_8X, ttl_simple.ClockGen)
         eem.Urukul.add_std(self, 3, 4, ttl_serdes_7series.Output_8X, ttl_simple.ClockGen)
+        eem.SUServo.add_std(self, eems_urukul=[[5, 6],[7, 8]], eems_sampler=[10, 11])    #eem10 and eem11 are blank, there is no second urukul for the suservo.
+        # eem.SUServo.add_std(self, eems_urukul=[[2, 3], [4, 5]], eems_sampler=[0, 1])
 
         self.config["HAS_RTIO_LOG"] = None
         self.config["RTIO_LOG_CHANNEL"] = len(self.rtio_channels)
