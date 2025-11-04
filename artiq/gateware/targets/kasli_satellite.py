@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#### This code is for different hardware than the hardware currently in use (CJW 2025/11/04)
 
 import argparse
 
@@ -44,6 +45,8 @@ class Satellite(SatelliteBase):
 
         eem.DIO.add_std(self, 0,
             ttl_serdes_7series.InOut_8X, ttl_serdes_7series.Output_8X, edge_counter_cls=SimpleEdgeCounter)
+        eem.Sampler.add_std(self, 1, 2, ttl_serdes_7series.Output_8X)
+        eem.Urukul.add_std(self, 3, 4, ttl_serdes_7series.Output_8X, ttl_simple.ClockGen)
 
         self.config["HAS_RTIO_LOG"] = None
         self.config["RTIO_LOG_CHANNEL"] = len(self.rtio_channels)
