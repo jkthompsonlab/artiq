@@ -39,7 +39,15 @@ class Master(MasterBase):
         self.submodules += phy
         self.rtio_channels.append(rtio.Channel.from_phy(phy))
         # matches Tester EEM numbers
-        eem.Sampler.add_std(self, 0, 1, ttl_serdes_7series.Output_8X)
+        # eem.Urukul.add_std(self, 0, 1, ttl_serdes_7series.Output_8X, ttl_simple.ClockGen)
+        # eem.Urukul.add_std(self, 2, 3, ttl_serdes_7series.Output_8X, ttl_simple.ClockGen)
+        # eem.DIO.add_std(self, 4, ttl_serdes_7series.InOut_8X, ttl_serdes_7series.Output_8X, edge_counter_cls=edge_counter.SimpleEdgeCounter)
+        # eem.Urukul.add_std(self, 5, 6, ttl_serdes_7series.Output_8X, ttl_simple.ClockGen)
+        # eem.Sampler.add_std(self, 0, 1, ttl_serdes_7series.Output_8X)
+        # eem.Zotino.add_std(self, 9, ttl_serdes_7series.Output_8X)
+        # eem.DIO.add_std(self, 10, ttl_serdes_7series.InOut_8X, ttl_serdes_7series.Output_8X, edge_counter_cls=edge_counter.SimpleEdgeCounter)
+        # eem.Mirny.add_std(self,11, ttl_serdes_7series.Output_8X)
+        eem.SUServo.add_std(self, eems_urukul=[[2, 3], [4, 5]], eems_sampler=[0, 1])
 
         self.config["HAS_RTIO_LOG"] = None
         self.config["RTIO_LOG_CHANNEL"] = len(self.rtio_channels)
